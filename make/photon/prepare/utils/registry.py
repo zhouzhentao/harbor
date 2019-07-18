@@ -29,13 +29,19 @@ def prepare_registry(config_dict):
 def get_storage_provider_info(provider_name, provider_config):
     provider_config_copy = copy.deepcopy(provider_config)
     if provider_name == "filesystem":
-        if not (provider_config_copy and provider_config_copy.has_key('rootdirectory')):
+        if not (provider_config_copy and ('rootdirectory' in provider_config_copy)):
             provider_config_copy['rootdirectory'] = '/storage'
     if provider_name == 'gcs' and provider_config_copy.get('keyfile'):
         provider_config_copy['keyfile'] = '/etc/registry/gcs.key'
     # generate storage configuration section in yaml format
     storage_provider_conf_list = [provider_name + ':']
     for config in provider_config_copy.items():
-        storage_provider_conf_list.append('{}: {}'.format(*config))
+        if config[1] is None:
+            value = ''
+        elif config[1] == True:
+            value = 'true'
+        else:
+            value = config[1]
+        storage_provider_conf_list.append('{}: {}'.format(config[0], value))
     storage_provider_info = ('\n' + ' ' * 4).join(storage_provider_conf_list)
     return storage_provider_info

@@ -22,10 +22,11 @@ import (
 	"strings"
 
 	"fmt"
-	"github.com/goharbor/harbor/src/common"
-	"github.com/gorilla/mux"
 	"os"
 	"sort"
+
+	"github.com/goharbor/harbor/src/common"
+	"github.com/gorilla/mux"
 )
 
 // RequestHandlerMapping is a mapping between request and its handler
@@ -115,13 +116,12 @@ func GetUnitTestConfig() map[string]interface{} {
 		common.LDAPVerifyCert:         true,
 		common.UAAVerifyCert:          true,
 		common.ClairDBHost:            "postgresql",
-		common.CfgExpiration:          5,
 		common.AdminInitialPassword:   "Harbor12345",
 		common.LDAPGroupSearchFilter:  "objectclass=groupOfNames",
 		common.LDAPGroupBaseDN:        "dc=example,dc=com",
 		common.LDAPGroupAttributeName: "cn",
 		common.LDAPGroupSearchScope:   2,
-		common.LdapGroupAdminDn:       "cn=harbor_users,ou=groups,dc=example,dc=com",
+		common.LDAPGroupAdminDn:       "cn=harbor_users,ou=groups,dc=example,dc=com",
 		common.WithNotary:             "false",
 		common.WithChartMuseum:        "false",
 		common.SelfRegistration:       "true",

@@ -21,7 +21,6 @@ import {
   OnInit,
   OnDestroy
 } from "@angular/core";
-import { Response } from "@angular/http";
 import { NgForm } from "@angular/forms";
 
 import { Subject } from "rxjs";
@@ -31,7 +30,8 @@ import { MessageHandlerService } from "../../shared/message-handler/message-hand
 import { InlineAlertComponent } from "../../shared/inline-alert/inline-alert.component";
 
 import { Project } from "../project";
-import { ProjectService } from "../project.service";
+import { ProjectService } from "@harbor/ui";
+import { errorHandler } from '@angular/platform-browser/src/browser';
 
 
 
@@ -119,21 +119,7 @@ export class CreateProjectComponent implements OnInit, OnDestroy {
       },
       error => {
         this.isSubmitOnGoing = false;
-
-        let errorMessage: string;
-        if (error instanceof Response) {
-          switch (error.status) {
-            case 409:
-              this.translateService.get("PROJECT.NAME_ALREADY_EXISTS").subscribe(res => errorMessage = res);
-              break;
-            case 400:
-              this.translateService.get("PROJECT.NAME_IS_ILLEGAL").subscribe(res => errorMessage = res);
-              break;
-            default:
-              this.translateService.get("PROJECT.UNKNOWN_ERROR").subscribe(res => errorMessage = res);
-          }
-        this.messageHandlerService.handleError(error);
-        }
+        this.inlineAlert.showInlineError(error);
       });
   }
 
@@ -148,6 +134,7 @@ export class CreateProjectComponent implements OnInit, OnDestroy {
     this.isNameValid = true;
 
     this.createProjectOpened = true;
+    this.inlineAlert.close();
   }
 
   public get isValid(): boolean {

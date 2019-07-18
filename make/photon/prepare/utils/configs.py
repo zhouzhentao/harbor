@@ -13,6 +13,14 @@ def validate(conf, **kwargs):
         if not conf.get("cert_key_path"):
             raise Exception("Error: The protocol is https but attribute ssl_cert_key is not set")
 
+    # log endpoint validate
+    if ('log_ep_host' in conf) and not conf['log_ep_host']:
+        raise Exception('Error: must set log endpoint host to enable external host')
+    if ('log_ep_port' in conf) and not conf['log_ep_port']:
+        raise Exception('Error: must set log endpoint port to enable external host')
+    if ('log_ep_protocol' in conf) and (conf['log_ep_protocol'] not in ['udp', 'tcp']):
+        raise Exception("Protocol in external log endpoint must be one of 'udp' or 'tcp' ")
+
     # Storage validate
     valid_storage_drivers = ["filesystem", "azure", "gcs", "s3", "swift", "oss"]
     storage_provider_name = conf.get("storage_provider_name")
@@ -79,16 +87,51 @@ def parse_yaml_config(config_file_path):
         config_dict['cert_path'] = https_config["certificate"]
         config_dict['cert_key_path'] = https_config["private_key"]
 
-    config_dict['public_url'] = configs.get('external_url') or '{protocol}://{hostname}'.format(**config_dict)
+    if configs.get('external_url'):
+        config_dict['public_url'] = configs.get('external_url')
+    else:
+        if config_dict['protocol'] == 'https':
+            if config_dict['https_port'] == 443:
+                config_dict['public_url'] = '{protocol}://{hostname}'.format(**config_dict)
+            else:
+                config_dict['public_url'] = '{protocol}://{hostname}:{https_port}'.format(**config_dict)
+        else:
+            if config_dict['http_port'] == 80:
+                config_dict['public_url'] = '{protocol}://{hostname}'.format(**config_dict)
+            else:
+                config_dict['public_url'] = '{protocol}://{hostname}:{http_port}'.format(**config_dict)
 
     # DB configs
     db_configs = configs.get('database')
     if db_configs:
-        config_dict['db_host'] = 'postgresql'
-        config_dict['db_port'] = 5432
-        config_dict['db_user'] = 'postgres'
-        config_dict['db_password'] = db_configs.get("password") or ''
-        config_dict['ssl_mode'] = 'disable'
+        # harbor db
+        config_dict['harbor_db_host'] = 'postgresql'
+        config_dict['harbor_db_port'] = 5432
+        config_dict['harbor_db_name'] = 'registry'
+        config_dict['harbor_db_username'] = 'postgres'
+        config_dict['harbor_db_password'] = db_configs.get("password") or ''
+        config_dict['harbor_db_sslmode'] = 'disable'
+        # clari db
+        config_dict['clair_db_host'] = 'postgresql'
+        config_dict['clair_db_port'] = 5432
+        config_dict['clair_db_name'] = 'postgres'
+        config_dict['clair_db_username'] = 'postgres'
+        config_dict['clair_db_password'] = db_configs.get("password") or ''
+        config_dict['clair_db_sslmode'] = 'disable'
+        # notary signer
+        config_dict['notary_signer_db_host'] = 'postgresql'
+        config_dict['notary_signer_db_port'] = 5432
+        config_dict['notary_signer_db_name'] = 'notarysigner'
+        config_dict['notary_signer_db_username'] = 'signer'
+        config_dict['notary_signer_db_password'] = 'password'
+        config_dict['notary_signer_db_sslmode'] = 'disable'
+        # notary server
+        config_dict['notary_server_db_host'] = 'postgresql'
+        config_dict['notary_server_db_port'] = 5432
+        config_dict['notary_server_db_name'] = 'notaryserver'
+        config_dict['notary_server_db_username'] = 'server'
+        config_dict['notary_server_db_password'] = 'password'
+        config_dict['notary_server_db_sslmode'] = 'disable'
 
 
     # Data path volume
@@ -124,13 +167,20 @@ def parse_yaml_config(config_file_path):
         config_dict['storage_provider_name'] = 'filesystem'
         config_dict['storage_provider_config'] = {}
 
-    # Clair configs
+    if storage_config.get('redirect'):
+        config_dict['storage_redirect_disabled'] = storage_config['redirect']['disabled']
+
+    # Clair configs, optional
     clair_configs = configs.get("clair") or {}
     config_dict['clair_db'] = 'postgres'
     config_dict['clair_updaters_interval'] = clair_configs.get("updaters_interval") or 12
     config_dict['clair_http_proxy'] = clair_configs.get('http_proxy') or ''
     config_dict['clair_https_proxy'] = clair_configs.get('https_proxy') or ''
     config_dict['clair_no_proxy'] = clair_configs.get('no_proxy') or '127.0.0.1,localhost,core,registry'
+
+    # Chart configs
+    chart_configs = configs.get("chart") or {}
+    config_dict['chart_absolute_url'] = chart_configs.get('absolute_url') or ''
 
     # jobservice config
     js_config = configs.get('jobservice') or {}
@@ -139,22 +189,61 @@ def parse_yaml_config(config_file_path):
 
 
     # Log configs
+    allowed_levels = ['debug', 'info', 'warning', 'error', 'fatal']
     log_configs = configs.get('log') or {}
-    config_dict['log_location'] = log_configs["location"]
-    config_dict['log_rotate_count'] = log_configs["rotate_count"]
-    config_dict['log_rotate_size'] = log_configs["rotate_size"]
-    config_dict['log_level'] = log_configs['level']
 
+    log_level = log_configs['level']
+    if log_level not in allowed_levels:
+        raise Exception('log level must be one of debug, info, warning, error, fatal')
+    config_dict['log_level'] = log_level.lower()
 
-    # external DB, if external_db enabled, it will cover the database config
+    # parse local log related configs
+    local_logs = log_configs.get('local') or {}
+    if local_logs:
+        config_dict['log_location'] = local_logs.get('location') or '/var/log/harbor'
+        config_dict['log_rotate_count'] = local_logs.get('rotate_count') or 50
+        config_dict['log_rotate_size'] = local_logs.get('rotate_size') or '200M'
+
+    # parse external log endpoint related configs
+    if log_configs.get('external_endpoint'):
+        config_dict['log_external'] = True
+        config_dict['log_ep_protocol'] = log_configs['external_endpoint']['protocol']
+        config_dict['log_ep_host'] = log_configs['external_endpoint']['host']
+        config_dict['log_ep_port'] = log_configs['external_endpoint']['port']
+    else:
+        config_dict['log_external'] = False
+
+    # external DB, optional, if external_db enabled, it will cover the database config
     external_db_configs = configs.get('external_database') or {}
     if external_db_configs:
-        config_dict['db_password'] = external_db_configs.get('password') or ''
-        config_dict['db_host'] = external_db_configs['host']
-        config_dict['db_port'] = external_db_configs['port']
-        config_dict['db_user'] = db_configs['username']
-        if external_db_configs.get('ssl_mode'):
-            config_dict['db_ssl_mode'] = external_db_configs['ssl_mode']
+        # harbor db
+        config_dict['harbor_db_host'] = external_db_configs['harbor']['host']
+        config_dict['harbor_db_port'] = external_db_configs['harbor']['port']
+        config_dict['harbor_db_name'] = external_db_configs['harbor']['db_name']
+        config_dict['harbor_db_username'] = external_db_configs['harbor']['username']
+        config_dict['harbor_db_password'] = external_db_configs['harbor']['password']
+        config_dict['harbor_db_sslmode'] = external_db_configs['harbor']['ssl_mode']
+        # clair db
+        config_dict['clair_db_host'] = external_db_configs['clair']['host']
+        config_dict['clair_db_port'] = external_db_configs['clair']['port']
+        config_dict['clair_db_name'] = external_db_configs['clair']['db_name']
+        config_dict['clair_db_username'] = external_db_configs['clair']['username']
+        config_dict['clair_db_password'] = external_db_configs['clair']['password']
+        config_dict['clair_db_sslmode'] = external_db_configs['clair']['ssl_mode']
+        # notary signer
+        config_dict['notary_signer_db_host'] = external_db_configs['notary_signer']['host']
+        config_dict['notary_signer_db_port'] = external_db_configs['notary_signer']['port']
+        config_dict['notary_signer_db_name'] = external_db_configs['notary_signer']['db_name']
+        config_dict['notary_signer_db_username'] = external_db_configs['notary_signer']['username']
+        config_dict['notary_signer_db_password'] = external_db_configs['notary_signer']['password']
+        config_dict['notary_signer_db_sslmode'] = external_db_configs['notary_signer']['ssl_mode']
+        # notary server
+        config_dict['notary_server_db_host'] = external_db_configs['notary_server']['host']
+        config_dict['notary_server_db_port'] = external_db_configs['notary_server']['port']
+        config_dict['notary_server_db_name'] = external_db_configs['notary_server']['db_name']
+        config_dict['notary_server_db_username'] = external_db_configs['notary_server']['username']
+        config_dict['notary_server_db_password'] = external_db_configs['notary_server']['password']
+        config_dict['notary_server_db_sslmode'] = external_db_configs['notary_server']['ssl_mode']
 
 
     # redis config
@@ -189,5 +278,8 @@ def parse_yaml_config(config_file_path):
 
      # Admiral configs
     config_dict['admiral_url'] = configs.get("admiral_url") or ""
+
+    # UAA configs
+    config_dict['uaa'] = configs.get('uaa') or {}
 
     return config_dict

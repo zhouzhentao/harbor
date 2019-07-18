@@ -28,7 +28,7 @@ import { MemberComponent } from './member/member.component';
 import { AddMemberComponent } from './member/add-member/add-member.component';
 import { AddGroupComponent } from './member/add-group/add-group.component';
 
-import { ProjectService } from './project.service';
+// import { ProjectService } from '@harbor/ui';
 import { MemberService } from './member/member.service';
 import { RobotService } from './robot-account/robot-account.service';
 import { ProjectRoutingResolver } from './project-routing-resolver.service';
@@ -38,6 +38,7 @@ import { ProjectLabelComponent } from "../project/project-label/project-label.co
 import { HelmChartModule } from './helm-chart/helm-chart.module';
 import { RobotAccountComponent } from './robot-account/robot-account.component';
 import { AddRobotComponent } from './robot-account/add-robot/add-robot.component';
+import { AddHttpAuthGroupComponent } from './member/add-http-auth-group/add-http-auth-group.component';
 
 @NgModule({
   imports: [
@@ -59,10 +60,11 @@ import { AddRobotComponent } from './robot-account/add-robot/add-robot.component
     ProjectLabelComponent,
     AddGroupComponent,
     RobotAccountComponent,
-    AddRobotComponent
+    AddRobotComponent,
+    AddHttpAuthGroupComponent
   ],
   exports: [ProjectComponent, ListProjectComponent],
-  providers: [ProjectRoutingResolver, ProjectService, MemberService, RobotService]
+  providers: [ProjectRoutingResolver, MemberService, RobotService]
 })
 export class ProjectModule {
 

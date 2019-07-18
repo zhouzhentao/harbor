@@ -14,6 +14,8 @@
 package controllers
 
 import (
+	"context"
+	"github.com/goharbor/harbor/src/core/filter"
 	"net/http"
 	"net/http/httptest"
 	// "net/url"
@@ -43,8 +45,6 @@ func init() {
 	beego.TestBeegoInit(apppath)
 	beego.AddTemplateExt("htm")
 
-	beego.Router("/", &IndexController{})
-
 	beego.Router("/c/login", &CommonController{}, "post:Login")
 	beego.Router("/c/log_out", &CommonController{}, "get:LogOut")
 	beego.Router("/c/reset", &CommonController{}, "post:ResetPassword")
@@ -66,13 +66,11 @@ func TestUserResettable(t *testing.T) {
 	assert := assert.New(t)
 	DBAuthConfig := map[string]interface{}{
 		common.AUTHMode:        common.DBAuth,
-		common.CfgExpiration:   5,
 		common.TokenExpiration: 30,
 	}
 
 	LDAPAuthConfig := map[string]interface{}{
 		common.AUTHMode:        common.LDAPAuth,
-		common.CfgExpiration:   5,
 		common.TokenExpiration: 30,
 	}
 	config.InitWithSettings(LDAPAuthConfig)
@@ -90,6 +88,15 @@ func TestUserResettable(t *testing.T) {
 	assert.True(isUserResetable(u2))
 	config.InitWithSettings(DBAuthConfig)
 	assert.True(isUserResetable(u1))
+}
+
+func TestRedirectForOIDC(t *testing.T) {
+	ctx := context.WithValue(context.Background(), filter.AuthModeKey, common.DBAuth)
+	assert.False(t, redirectForOIDC(ctx, "nonexist"))
+	ctx = context.WithValue(context.Background(), filter.AuthModeKey, common.OIDCAuth)
+	assert.True(t, redirectForOIDC(ctx, "nonexist"))
+	assert.False(t, redirectForOIDC(ctx, "admin"))
+
 }
 
 // TestMain is a sample to run an endpoint test

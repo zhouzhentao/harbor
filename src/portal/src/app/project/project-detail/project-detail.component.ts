@@ -17,10 +17,9 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Project } from '../project';
 
 import { SessionService } from '../../shared/session.service';
-import { ProjectService } from '../../project/project.service';
 
 import { AppConfigService } from "../../app-config.service";
-import { UserPermissionService, USERSTATICPERMISSION, ErrorHandler } from "@harbor/ui";
+import { UserPermissionService, USERSTATICPERMISSION, ErrorHandler, ProjectService } from "@harbor/ui";
 import { forkJoin } from "rxjs";
 @Component({
   selector: 'project-detail',
@@ -38,7 +37,6 @@ export class ProjectDetailComponent implements OnInit {
   hasHelmChartsListPermission: boolean;
   hasRepositoryListPermission: boolean;
   hasMemberListPermission: boolean;
-  hasReplicationListPermission: boolean;
   hasLabelListPermission: boolean;
   hasLabelCreatePermission: boolean;
   hasLogListPermission: boolean;
@@ -73,8 +71,6 @@ export class ProjectDetailComponent implements OnInit {
     permissionsList.push(this.userPermissionService.getPermission(projectId,
       USERSTATICPERMISSION.MEMBER.KEY, USERSTATICPERMISSION.MEMBER.VALUE.LIST));
     permissionsList.push(this.userPermissionService.getPermission(projectId,
-      USERSTATICPERMISSION.REPLICATION.KEY, USERSTATICPERMISSION.REPLICATION.VALUE.LIST));
-    permissionsList.push(this.userPermissionService.getPermission(projectId,
       USERSTATICPERMISSION.LABEL.KEY, USERSTATICPERMISSION.LABEL.VALUE.LIST));
     permissionsList.push(this.userPermissionService.getPermission(projectId,
       USERSTATICPERMISSION.REPOSITORY.KEY, USERSTATICPERMISSION.REPOSITORY.VALUE.LIST));
@@ -85,7 +81,7 @@ export class ProjectDetailComponent implements OnInit {
     permissionsList.push(this.userPermissionService.getPermission(projectId,
       USERSTATICPERMISSION.LABEL.KEY, USERSTATICPERMISSION.LABEL.VALUE.CREATE));
     forkJoin(...permissionsList).subscribe(Rules => {
-      [this.hasLogListPermission, this.hasConfigurationListPermission, this.hasMemberListPermission, this.hasReplicationListPermission
+      [this.hasLogListPermission, this.hasConfigurationListPermission, this.hasMemberListPermission
         , this.hasLabelListPermission, this.hasRepositoryListPermission, this.hasHelmChartsListPermission, this.hasRobotListPermission
         , this.hasLabelCreatePermission] = Rules;
 

@@ -116,7 +116,7 @@ func initProjectManager() error {
 		}
 		pool := x509.NewCertPool()
 		if ok := pool.AppendCertsFromPEM(content); !ok {
-			return fmt.Errorf("failed to append cert content into cert pool")
+			return fmt.Errorf("failed to append cert content into cert worker")
 		}
 		AdmiralClient = &http.Client{
 			Transport: &http.Transport{
@@ -168,7 +168,11 @@ func Upload(cfg map[string]interface{}) error {
 
 // GetSystemCfg returns the system configurations
 func GetSystemCfg() (map[string]interface{}, error) {
-	return cfgMgr.GetAll(), nil
+	sysCfg := cfgMgr.GetAll()
+	if len(sysCfg) == 0 {
+		return nil, errors.New("can not load system config, the database might be down")
+	}
+	return sysCfg, nil
 }
 
 // AuthMode ...
@@ -176,6 +180,7 @@ func AuthMode() (string, error) {
 	err := cfgMgr.Load()
 	if err != nil {
 		log.Errorf("failed to load config, error %v", err)
+		return "db_auth", err
 	}
 	return cfgMgr.Get(common.AUTHMode).GetString(), nil
 }
@@ -219,7 +224,7 @@ func LDAPGroupConf() (*models.LdapGroupConf, error) {
 		LdapGroupFilter:              cfgMgr.Get(common.LDAPGroupSearchFilter).GetString(),
 		LdapGroupNameAttribute:       cfgMgr.Get(common.LDAPGroupAttributeName).GetString(),
 		LdapGroupSearchScope:         cfgMgr.Get(common.LDAPGroupSearchScope).GetInt(),
-		LdapGroupAdminDN:             cfgMgr.Get(common.LdapGroupAdminDn).GetString(),
+		LdapGroupAdminDN:             cfgMgr.Get(common.LDAPGroupAdminDn).GetString(),
 		LdapGroupMembershipAttribute: cfgMgr.Get(common.LDAPGroupMembershipAttribute).GetString(),
 	}, nil
 }
@@ -477,7 +482,7 @@ func HTTPAuthProxySetting() (*models.HTTPAuthProxy, error) {
 		Endpoint:            cfgMgr.Get(common.HTTPAuthProxyEndpoint).GetString(),
 		TokenReviewEndpoint: cfgMgr.Get(common.HTTPAuthProxyTokenReviewEndpoint).GetString(),
 		VerifyCert:          cfgMgr.Get(common.HTTPAuthProxyVerifyCert).GetBool(),
-		AlwaysOnBoard:       cfgMgr.Get(common.HTTPAuthProxyAlwaysOnboard).GetBool(),
+		SkipSearch:          cfgMgr.Get(common.HTTPAuthProxySkipSearch).GetBool(),
 	}, nil
 
 }

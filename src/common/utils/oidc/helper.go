@@ -35,20 +35,14 @@ const googleEndpoint = "https://accounts.google.com"
 
 type providerHelper struct {
 	sync.Mutex
-	ep       endpoint
-	instance atomic.Value
-	setting  atomic.Value
-}
-
-type endpoint struct {
-	url        string
-	VerifyCert bool
+	instance     atomic.Value
+	setting      atomic.Value
+	creationTime time.Time
 }
 
 func (p *providerHelper) get() (*gooidc.Provider, error) {
 	if p.instance.Load() != nil {
-		s := p.setting.Load().(models.OIDCSetting)
-		if s.Endpoint != p.ep.url || s.VerifyCert != p.ep.VerifyCert { // relevant settings have changed, need to re-create provider.
+		if time.Now().Sub(p.creationTime) > 3*time.Second {
 			if err := p.create(); err != nil {
 				return nil, err
 			}
@@ -57,7 +51,7 @@ func (p *providerHelper) get() (*gooidc.Provider, error) {
 		p.Lock()
 		defer p.Unlock()
 		if p.instance.Load() == nil {
-			if err := p.reload(); err != nil {
+			if err := p.reloadSetting(); err != nil {
 				return nil, err
 			}
 			if err := p.create(); err != nil {
@@ -65,7 +59,7 @@ func (p *providerHelper) get() (*gooidc.Provider, error) {
 			}
 			go func() {
 				for {
-					if err := p.reload(); err != nil {
+					if err := p.reloadSetting(); err != nil {
 						log.Warningf("Failed to refresh configuration, error: %v", err)
 					}
 					time.Sleep(3 * time.Second)
@@ -73,10 +67,11 @@ func (p *providerHelper) get() (*gooidc.Provider, error) {
 			}()
 		}
 	}
+
 	return p.instance.Load().(*gooidc.Provider), nil
 }
 
-func (p *providerHelper) reload() error {
+func (p *providerHelper) reloadSetting() error {
 	conf, err := config.OIDCSetting()
 	if err != nil {
 		return fmt.Errorf("failed to load OIDC setting: %v", err)
@@ -96,10 +91,7 @@ func (p *providerHelper) create() error {
 		return fmt.Errorf("failed to create OIDC provider, error: %v", err)
 	}
 	p.instance.Store(provider)
-	p.ep = endpoint{
-		url:        s.Endpoint,
-		VerifyCert: s.VerifyCert,
-	}
+	p.creationTime = time.Now()
 	return nil
 }
 
@@ -113,7 +105,7 @@ var insecureTransport = &http.Transport{
 
 // Token wraps the attributes of a oauth2 token plus the attribute of ID token
 type Token struct {
-	*oauth2.Token
+	oauth2.Token
 	IDToken string `json:"id_token"`
 }
 
@@ -148,8 +140,8 @@ func AuthCodeURL(state string) (string, error) {
 		log.Errorf("Failed to get OAuth configuration, error: %v", err)
 		return "", err
 	}
-	if strings.HasPrefix(conf.Endpoint.AuthURL, googleEndpoint) {
-		return conf.AuthCodeURL(state, oauth2.AccessTypeOffline), nil
+	if strings.HasPrefix(conf.Endpoint.AuthURL, googleEndpoint) { // make sure the refresh token will be returned
+		return conf.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent")), nil
 	}
 	return conf.AuthCodeURL(state), nil
 }
@@ -167,7 +159,7 @@ func ExchangeToken(ctx context.Context, code string) (*Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Token{Token: oauthToken, IDToken: oauthToken.Extra("id_token").(string)}, nil
+	return &Token{Token: *oauthToken, IDToken: oauthToken.Extra("id_token").(string)}, nil
 }
 
 // VerifyToken verifies the ID token based on the OIDC settings
@@ -203,10 +195,14 @@ func RefreshToken(ctx context.Context, token *Token) (*Token, error) {
 	}
 	setting := provider.setting.Load().(models.OIDCSetting)
 	ctx = clientCtx(ctx, setting.VerifyCert)
-	ts := oauth.TokenSource(ctx, token.Token)
+	ts := oauth.TokenSource(ctx, &token.Token)
 	t, err := ts.Token()
 	if err != nil {
 		return nil, err
 	}
-	return &Token{Token: t, IDToken: t.Extra("id_token").(string)}, nil
+	it, ok := t.Extra("id_token").(string)
+	if !ok {
+		return nil, fmt.Errorf("failed to get id_token from refresh response")
+	}
+	return &Token{Token: *t, IDToken: it}, nil
 }

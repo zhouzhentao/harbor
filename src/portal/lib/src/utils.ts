@@ -1,9 +1,9 @@
 import { Observable } from "rxjs";
 
-import { RequestOptions, Headers } from '@angular/http';
+import { HttpHeaders, HttpParams } from '@angular/common/http';
 import { RequestQueryParams } from './service/RequestQueryParams';
 import { DebugElement } from '@angular/core';
-import { Comparator, State } from './service/interface';
+import { Comparator, State, HttpOptionInterface, HttpOptionTextInterface } from './service/interface';
 
 /**
  * Convert the different async channels to the Promise<T> type.
@@ -41,35 +41,74 @@ export const DEFAULT_SUPPORTING_LANGS = ['en-us', 'zh-cn', 'es-es', 'fr-fr', 'pt
  */
 export const DEFAULT_LANG = 'en-us';
 
-export const HTTP_JSON_OPTIONS: RequestOptions = new RequestOptions({
-    headers: new Headers({
+
+export const HTTP_JSON_OPTIONS: HttpOptionInterface = {
+    headers: new HttpHeaders({
         "Content-Type": 'application/json',
         "Accept": 'application/json'
-    })
-});
+    }),
+    responseType: 'json'
+};
 
-export const HTTP_GET_OPTIONS: RequestOptions = new RequestOptions({
-    headers: new Headers({
+export const HTTP_GET_OPTIONS: HttpOptionInterface = {
+    headers: new HttpHeaders({
         "Content-Type": 'application/json',
         "Accept": 'application/json',
         "Cache-Control": 'no-cache',
         "Pragma": 'no-cache'
-    })
+    }),
+    responseType: 'json'
+};
+export const HTTP_GET_OPTIONS_OBSERVE_RESPONSE: HttpOptionInterface = {
+    headers: new HttpHeaders({
+        "Content-Type": 'application/json',
+        "Accept": 'application/json',
+        "Cache-Control": 'no-cache',
+        "Pragma": 'no-cache'
+    }),
+    observe: 'response' as 'body',
+    responseType: 'json'
+};
+export const HTTP_GET_OPTIONS_TEXT: HttpOptionTextInterface = {
+    headers: new HttpHeaders({
+        "Content-Type": 'application/json',
+        "Accept": 'application/json',
+        "Cache-Control": 'no-cache',
+        "Pragma": 'no-cache'
+    }),
+    responseType: 'text'
+};
+
+export const HTTP_FORM_OPTIONS: HttpOptionInterface = {
+    headers: new HttpHeaders({
+        "Content-Type": 'application/x-www-form-urlencoded'
+    }),
+    responseType: 'json'
+};
+
+export const HTTP_GET_HEADER: HttpHeaders = new HttpHeaders({
+    "Content-Type": 'application/json',
+    "Accept": 'application/json',
+    "Cache-Control": 'no-cache',
+    "Pragma": 'no-cache'
 });
-export const HTTP_GET_OPTIONS_CACHE: RequestOptions = new RequestOptions({
-    headers: new Headers({
+
+export const HTTP_GET_OPTIONS_CACHE: HttpOptionInterface = {
+    headers: new HttpHeaders({
         "Content-Type": 'application/json',
         "Accept": 'application/json',
         "Cache-Control": 'no-cache',
         "Pragma": 'no-cache',
-    })
-});
+    }),
+    responseType: 'json'
+};
 
-export const FILE_UPLOAD_OPTION: RequestOptions = new RequestOptions({
-    headers: new Headers({
+export const FILE_UPLOAD_OPTION: HttpOptionInterface = {
+    headers: new HttpHeaders({
         "Content-Type": 'multipart/form-data',
-    })
-});
+    }),
+    responseType: 'json'
+};
 
 /**
  * Build http request options
@@ -78,20 +117,36 @@ export const FILE_UPLOAD_OPTION: RequestOptions = new RequestOptions({
  *  ** deprecated param {RequestQueryParams} params
  * returns {RequestOptions}
  */
-export function buildHttpRequestOptions(params: RequestQueryParams): RequestOptions {
-    let reqOptions: RequestOptions = new RequestOptions({
-        headers: new Headers({
+export function buildHttpRequestOptions(params: RequestQueryParams): HttpOptionInterface {
+    let reqOptions: HttpOptionInterface = {
+        headers: new HttpHeaders({
             "Content-Type": 'application/json',
             "Accept": 'application/json',
             "Cache-Control": 'no-cache',
             "Pragma": 'no-cache'
-        })
-    });
-
+        }),
+        responseType: 'json',
+    };
     if (params) {
-        reqOptions.search = params;
+        reqOptions.params = params;
     }
 
+    return reqOptions;
+}
+export function buildHttpRequestOptionsWithObserveResponse(params: RequestQueryParams): HttpOptionInterface {
+    let reqOptions: HttpOptionInterface = {
+        headers: new HttpHeaders({
+            "Content-Type": 'application/json',
+            "Accept": 'application/json',
+            "Cache-Control": 'no-cache',
+            "Pragma": 'no-cache'
+        }),
+        responseType: 'json',
+        observe: 'response' as 'body'
+    };
+    if (params) {
+        reqOptions.params = params;
+    }
     return reqOptions;
 }
 
@@ -130,14 +185,32 @@ export class CustomComparator<T> implements Comparator<T> {
     compare(a: { [key: string]: any | any[] }, b: { [key: string]: any | any[] }) {
         let comp = 0;
         if (a && b) {
-            let fieldA = a[this.fieldName];
-            let fieldB = b[this.fieldName];
+            let fieldA, fieldB;
+            for (let key of Object.keys(a)) {
+                if (key === this.fieldName) {
+                    fieldA = a[key];
+                    fieldB = b[key];
+                    break;
+                } else if (typeof a[key] === 'object') {
+                    let insideObject = a[key];
+                    for (let insideKey in insideObject) {
+                        if (insideKey === this.fieldName) {
+                            fieldA = insideObject[insideKey];
+                            fieldB = b[key][insideKey];
+                            break;
+                        }
+                    }
+                }
+            }
             switch (this.type) {
                 case "number":
                     comp = fieldB - fieldA;
                     break;
                 case "date":
                     comp = new Date(fieldB).getTime() - new Date(fieldA).getTime();
+                    break;
+                case "string":
+                    comp = fieldB.localeCompare(fieldA);
                     break;
             }
         }
@@ -335,7 +408,7 @@ export function getChanges(original: any, afterChange: any): { [key: string]: an
                 }
 
                 // Trim string value
-                if (typeof field.value === 'string') {
+                if (typeof field.value === "string") {
                     changes[prop] = ('' + changes[prop]).trim();
                 }
             }
@@ -345,22 +418,14 @@ export function getChanges(original: any, afterChange: any): { [key: string]: an
 }
 
 export function cronRegex(testValue: any): boolean {
-    const regSecond = "^($|#|\\w+\\s*=|(\\?|\\*|(?:[0-5]?\\d)(?:(?:-|\/|\\,)(?:[0-5]?\\d))?" +
-                      "(?:,(?:[0-5]?\\d)(?:(?:-|\/|\\,)(?:[0-5]?\\d))?)*)\\s+";
-    const regMinute = "(\\?|\\*|(?:[0-5]?\\d)(?:(?:-|\/|\\,)(?:[0-5]?\\d))?(?:,(?:[0-5]?\\d)(?:(?:-|\/|\\,)(?:[0-5]?\\d))?)*)\\s+";
-    const regHour = "(\\?|\\*|(?:[01]?\\d|2[0-3])(?:(?:-|\/|\\,)(?:[01]?\\d|2[0-3]))?(?:,(?:[01]?\\d|2[0-3])" +
-                    "(?:(?:-|\/|\\,)(?:[01]?\\d|2[0-3]))?)*)\\s+";
-    const regDay = "(\\?|\\*|(?:0?[1-9]|[12]\\d|3[01])(?:(?:-|\/|\\,)(?:0?[1-9]|[12]\\d|3[01]))?(?:,(?:0?[1-9]|[12]\\d|3[01])" +
-                   "(?:(?:-|\/|\\,)(?:0?[1-9]|[12]\\d|3[01]))?)*)\\s+";
-    const regMonth = "(\\?|\\*|(?:[1-9]|1[012])(?:(?:-|\/|\\,)(?:[1-9]|1[012]))?(?:L|W)?(?:,(?:[1-9]|1[012])(?:(?:-|\/|\\,)" +
-                     "(?:[1-9]|1[012]))?(?:L|W)?)*|\\?|\\*|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(?:(?:-)" +
-                     "(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC))?(?:,(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)" +
-                     "(?:(?:-)(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC))?)*)\\s+";
-    const regWeek = "(\\?|\\*|(?:[0-6])(?:(?:-|\/|\\,|#)(?:[0-6]))?(?:L)?(?:,(?:[0-6])(?:(?:-|\/|\\,|#)" +
-                    "(?:[0-6]))?(?:L)?)*|\\?|\\*|(?:MON|TUE|WED|THU|FRI|SAT|SUN)(?:(?:-)(?:MON|TUE|WED|THU|FRI|SAT|SUN))?" +
-                    "(?:,(?:MON|TUE|WED|THU|FRI|SAT|SUN)(?:(?:-)(?:MON|TUE|WED|THU|FRI|SAT|SUN))?)*)(|\\s)+";
-    const regYear = "(\\?|\\*|(?:|\\d{4})(?:(?:-|\/|\\,)(?:|\\d{4}))?(?:,(?:|\\d{4})(?:(?:-|\/|\\,)(?:|\\d{4}))?)*))$";
+    const regSecond = "^((([0-9])*|(\\*))(\\-|\\,|\\/)?([0-9])*)*\\s+";
+    const regMinute = "((([0-9])*|(\\*))(\\-|\\,|\\/)?([0-9])*)*\\s+";
+    const regHour = "((([0-9])*|(\\*))(\\-|\\,|\\/)?([0-9])*)*\\s+";
+    const regDay = "((([0-9])*|(\\*|\\?))(\\-|\\,|\\/)?([0-9])*)*\\s+";
+    const regMonth = "((([0-9a-zA-Z])*|(\\*))(\\-|\\,|\\/)?([0-9a-zA-Z])*)*\\s+";
+    const regWeek = "(((([0-9a-zA-Z])*|(\\*|\\?))(\\-|\\,|\\/)?([0-9a-zA-Z])*))*(|\\s)+";
+    const regYear = "((([0-9])*|(\\*|\\?))(\\-|\\,|\\/)?([0-9])*)$";
     const regEx = regSecond + regMinute + regHour + regDay + regMonth + regWeek + regYear;
     let reg = new RegExp(regEx, "i");
-    return reg.test(testValue);
+    return reg.test(testValue.trim());
 }

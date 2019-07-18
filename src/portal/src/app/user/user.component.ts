@@ -16,8 +16,8 @@ import { Component, OnInit, ViewChild, OnDestroy, ChangeDetectionStrategy, Chang
 import { Subscription, Observable, forkJoin } from "rxjs";
 
 import { TranslateService } from '@ngx-translate/core';
-
 import { ConfirmationState, ConfirmationTargets, ConfirmationButtons } from '../shared/shared.const';
+import { operateChanges, OperateInfo, OperationService, OperationState, errorHandler as errorHandFn } from '@harbor/ui';
 import { ConfirmationDialogService } from '../shared/confirmation-dialog/confirmation-dialog.service';
 import { ConfirmationMessage } from '../shared/confirmation-dialog/confirmation-message';
 import { MessageHandlerService } from '../shared/message-handler/message-handler.service';
@@ -27,7 +27,6 @@ import { NewUserModalComponent } from './new-user-modal.component';
 import { UserService } from './user.service';
 import { User } from './user';
 import { ChangePasswordComponent } from "./change-password/change-password.component";
-import { operateChanges, OperateInfo, OperationService, OperationState } from "@harbor/ui";
 import { map, catchError } from 'rxjs/operators';
 import { throwError as observableThrowError } from "rxjs";
 
@@ -105,7 +104,7 @@ export class UserComponent implements OnInit, OnDestroy {
   public get canCreateUser(): boolean {
     let appConfig = this.appConfigService.getConfig();
     if (appConfig) {
-      return !(appConfig.auth_mode === 'ldap_auth' || appConfig.auth_mode === 'uaa_auth');
+      return !(appConfig.auth_mode === 'ldap_auth' || appConfig.auth_mode === 'uaa_auth' || appConfig.auth_mode === 'oidc_auth');
     } else {
       return true;
     }
@@ -230,9 +229,9 @@ export class UserComponent implements OnInit, OnDestroy {
         this.selectedRow = [];
         this.refresh();
       }, error => {
-          this.selectedRow = [];
-          this.msgHandler.handleError(error);
-        });
+        this.selectedRow = [];
+        this.msgHandler.handleError(error);
+      });
     }
   }
 
@@ -290,16 +289,17 @@ export class UserComponent implements OnInit, OnDestroy {
       }));
     }
 
-
     return this.userService.deleteUser(user.user_id).pipe(map(() => {
       this.translate.get('BATCH.DELETED_SUCCESS').subscribe(res => {
         operateChanges(operMessage, OperationState.success);
       });
-    }, catchError(error => {
-      return this.translate.get('BATCH.DELETED_FAILURE').pipe(map(res => {
-        operateChanges(operMessage, OperationState.failure, res);
-      }));
-    })));
+    }), catchError(error => {
+      const message = errorHandFn(error);
+      this.translate.get(message).subscribe(res =>
+        operateChanges(operMessage, OperationState.failure, res)
+      );
+      return observableThrowError(message);
+    }));
   }
 
   // Refresh the user list
@@ -320,10 +320,10 @@ export class UserComponent implements OnInit, OnDestroy {
 
       return users;
     }, error => {
-        this.onGoing = false;
-        this.msgHandler.handleError(error);
-        this.forceRefreshView(5000);
-      });
+      this.onGoing = false;
+      this.msgHandler.handleError(error);
+      this.forceRefreshView(5000);
+    });
   }
 
   // Add new user

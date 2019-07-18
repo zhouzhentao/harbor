@@ -101,10 +101,9 @@ export class AuditLogComponent implements OnInit {
       .subscribe(
         response => {
           this.totalRecordCount = Number.parseInt(response.headers.get('x-total-count'));
-          this.auditLogs = response.json();
+          this.auditLogs = response.body;
         },
         error => {
-          this.router.navigate(['/harbor', 'projects']);
           this.messageHandlerService.handleError(error);
         }
       );

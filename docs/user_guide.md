@@ -4,14 +4,14 @@ This guide walks you through the fundamentals of using Harbor. You'll learn how 
 
 * [Manage your projects.](#managing-projects)
 * [Manage members of a project.](#managing-members-of-a-project)
-* [Replicate projects to a remote registry.](#replicating-images)
+* [Replicate resources between Harbor and non-Harbor registries.](#replicating-resources)
 * [Retag images within Harbor](#retag-images)
 * [Search projects and repositories.](#searching-projects-and-repositories)
 * [Manage labels.](#managing-labels)
 * [Manage Harbor system if you are the system administrator:](#administrator-options)
   * [Manage users.](#managing-user)
-  * [Manage endpoints.](#managing-endpoint)
-  * [Manage replication policies.](#managing-replication)
+  * [Manage registries.](#managing-registry)
+  * [Manage replication rules.](#managing-replication)
   * [Manage authentication.](#managing-authentication)
   * [Manage project creation.](#managing-project-creation)
   * [Manage self-registration.](#managing-self-registration)
@@ -29,7 +29,9 @@ This guide walks you through the fundamentals of using Harbor. You'll learn how 
   * [Working with Helm CLI](#working-with-helm-cli)
 * [Online Garbage Collection.](#online-garbage-collection)
 * [View build history.](#build-history)
+* [Using CLI after login via OIDC based SSO](#using-oidc-cli-secret)
 * [Manage robot account of a project.](#robot-account)
+* [Using API Explorer](#api-explorer)
 
 ## Role Based Access Control(RBAC)  
 
@@ -47,7 +49,7 @@ Besides the above three roles, there are two system-wide roles:
 * **Anonymous**: When a user is not logged in, the user is considered as an "Anonymous" user. An anonymous user has no access to private projects and has read-only access to public projects.  
 
 ## User account
-Harbor supports two authentication modes:  
+Harbor supports different authentication modes:  
 
 * **Database(db_auth)**  
 
@@ -71,6 +73,30 @@ Harbor supports two authentication modes:
 	When an LDAP/AD user logs in by *username* and *password*, Harbor binds to the LDAP/AD server with the **"LDAP Search DN"** and **"LDAP Search Password"** described in [installation guide](installation_guide.md). If it succeeded, Harbor looks up the user under the LDAP entry **"LDAP Base DN"** including substree. The attribute (such as uid, cn) specified by **"LDAP UID"** is used to match a user with the *username*. If a match is found, the user's *password* is verified by a bind request to the LDAP/AD server. Uncheck **"LDAP Verify Cert"** if the LDAP/AD server uses a self-signed or an untrusted certificate.
 	
 	Self-registration, deleting user, changing password and resetting password are not supported under LDAP/AD authentication mode because the users are managed by LDAP or AD.  
+
+* **OIDC Provider (oidc_auth)**
+
+    With this authentication mode, regular user will login to Harbor Portal via SSO flow.  
+    After the system administrator configure Harbor to authenticate via OIDC (more details refer to [this section](#managing-authentication)),
+    a button `LOGIN VIA OIDC PROVIDER` will appear on the login page.  
+    ![oidc_login](img/oidc_login.png)
+    
+    By clicking this button user will kick off the SSO flow and be redirected to the OIDC Provider for authentication.  After a successful
+    authentication at the remote site, user will be redirected to Harbor.  There will be an "onboard" step if it's the first time the user 
+    authenticate using his account, in which there will be a dialog popped up for him to set his user name in Harbor:
+    ![oidc_onboar](img/oidc_onboard_dlg.png)
+    
+    This user name will be the identifier for this user in Harbor, which will be used in the cases such as adding member to a project, assigning roles, etc.
+    This has to be a unique user name, if another user has used this user name to onboard, user will be prompted to choose another one.
+    
+    Regarding this user to use docker CLI, please refer to [Using CLI after login via OIDC based SSO](#using-oidc-cli-secret)
+   
+    **NOTE:**
+    1. After the onboard process, you still have to login to Harbor via SSO flow, the `Username` and `Password` fields are only for
+    local admin to login when Harbor is configured authentication via OIDC.
+    2. Similar to LDAP authentication mode, self-registration, updating profile, deleting user, changing password and 
+    resetting password are not supported.
+ 
 
 ## Managing projects
 A project in Harbor contains all repositories of an application. No images can be pushed to Harbor before the project is created. RBAC is applied to a project. There are two types of projects in Harbor:  
@@ -119,54 +145,66 @@ You can check one or more members, then click `ACTION`, choose one role to batch
 
 ![browse project](img/new_remove_update_member.png)
 
-## Replicating images  
-Images replication is used to replicate repositories from one Harbor instance to another.
+## Replicating resources  
+Replication allows users to replicate resources(images/charts) between Harbor and non-Harbor registries in both pull or push mode. Currently, the non-Harbor registries includes Docker Hub, Docker registry, Huawei SWR, and more registries will be supported in future.  
 
-The function is project-oriented, and once the system administrator has set a rule to one project, all repositories under the project that match the defined [filter](#image-filter) patterns will be replicated to the remote registry when the [triggering condition](#trigger-mode) is triggered. Each repository will start a job to run. If the project does not exist on the remote registry, a new project will be created automatically. If it already exists and the user configured in policy has no write privilege to it, the process will fail. The member information will not be replicated.  
+Once the system administrator has set a rule, all resources that match the defined [filter](#resource-filter) patterns will be replicated to the destination registry when the [triggering condition](#trigger-mode) is matched. Each resource will start a task to run. If the namespace does not exist on the destination registry, a new namespace will be created automatically. If it already exists and the user configured in policy has no write privilege to it, the process will fail. The member information will not be replicated.  
 
-There may be a bit of delay during replication based on the situation of the network. If replication job fails due to the network issue, the job will be re-scheduled a few minutes later and the schedule will keep trying until the network issue is resolved.  
+There may be a bit of delay during replication based on the situation of the network. If replication task fails, it will be re-scheduled a few minutes later and try 3 times.  
 
 **Note:** Due to API changes, replication between different versions of Harbor may be broken.
 
 ### Creating a replication rule
-Replication can be configured by creating a rule. Click `NEW REPLICATION RULE` under `Administration->Replications` and fill in the necessary fields. You can choose different image filters and trigger modes according to the different requirements. If there is no endpoint available in the list, you need to create one. Click `SAVE` to create a replication rule for the selected project. If `Replicate existing images immediately` is chosen, the existing images under the project will be replicated to the remote registry immediately.  
-
-#### Image filter
-Three image filters are supported:
-* **Repository**: Filter images according to the repository part of image name.
-* **Tag**: Filter images according to the tag part of image name.
-* **Label**: Filter images according to the [labels](#managing-labels). **Notes**: If the labels referenced by a rule are deleted, the rule's status will be set to `Disabled`. You need to edit and update it according to the tips.
-
-Two terms are supported in the pattern used by repository filter and tag filter:
-* **\***: Matches any sequence of non-separator characters `/`.
-* **?**: Matches any single non-separator character `/`.
-
-#### Trigger mode
-* **Manual**: Replicate the repositories manually when needed. **Note**: The deletion operations are not replicated. 
-* **Immediate**: When a new repository is pushed to the project, it is replicated to the remote registry immediately. Same to the deletion operation if the `Delete remote images when locally deleted` checkbox is selected.
-* **Scheduled**: Replicate the repositories daily or weekly. **Note**: The deletion operations are not replicated. 
+Login as a system administrator user, click `NEW REPLICATION RULE` under `Administration->Replications` and fill in the necessary fields. You can choose different replication modes, [resource filters](#resource-filter) and [trigger modes](#trigger-mode) according to the different requirements. If there is no endpoint available in the list, you need to create one. Click `SAVE` to create a replication rule.  
 
 ![browse project](img/create_rule.png)
 
-### Listing and stopping replication jobs
-Click a rule, jobs which belong to this rule will be listed. A job represents the progress of replicating the repository to the remote instance. Click `STOP JOBS`, the pending and retrying jobs will be stopped immediately and the running jobs will be canceled at the next checkpoint.  
+#### Resource filter
+Three resource filters are supported:
+* **Name**: Filter resources according to the name.
+* **Tag**: Filter resources according to the tag.
+* **Resource**: Filter images according to the resource type.
 
-![browse project](img/list_stop_jobs.png)
+The terms supported in the pattern used by name filter and tag filter are as follows:
+* **\***: Matches any sequence of non-separator characters `/`.
+* **\*\***: Matches any sequence of characters, including path separators `/`.
+* **?**: Matches any single non-separator character `/`.
+* **{alt1,...}**: Matches a sequence of characters if one of the comma-separated alternatives matches.
+
+**Note:** `library` must be added if you want to replicate the official images of Docker Hub. For example, `library/hello-world` matches the official hello-world images.  
+
+Pattern | String(Match or not)
+---------- | -------
+`library/*`      | `library/hello-world`(Y)<br> `library/my/hello-world`(N)
+`library/**`     | `library/hello-world`(Y)<br> `library/my/hello-world`(Y)
+`{library,goharbor}/**` | `library/hello-world`(Y)<br> `goharbor/harbor-core`(Y)<br> `google/hello-world`(N)
+`1.?`      | `1.0`(Y)<br> `1.01`(N)
+
+#### Trigger mode
+* **Manual**: Replicate the resources manually when needed. **Note**: The deletion operations are not replicated. 
+* **Scheduled**: Replicate the resources periodically. **Note**: The deletion operations are not replicated. 
+* **Event Based**: When a new resource is pushed to the project, it is replicated to the remote registry immediately. Same to the deletion operation if the `Delete remote resources when locally deleted` checkbox is selected.
 
 ### Starting a replication manually
-Select a replication rule and click `REPLICATE`, the images under the project which the rule is applied to will be replicated to the remote registry immediately. If there is any pending/running job that belongs to the rule, the new replication will not be started.
+Select a replication rule and click `REPLICATE`, the resources which the rule is applied to will be replicated from the source registry to the destination immediately.  
 
 ![browse project](img/start_replicate.png)
 
+### Listing and stopping replication executions
+Click a rule, the execution records which belong to this rule will be listed. Each record represents the summary of the once execution of the rule. Click `STOP` to stop the executions which are in progress.  
+
+![browse project](img/list_stop_executions.png)
+
+### Listing tasks
+Click the ID of one execution, you can get the execution summary and the task list. Click the log icon can get the detail information for the replication progress.  
+**Note**: The count of `IN PROGRESS` status in the summary includes both `Pending` and `In Progress` tasks.  
+
+![browse project](img/list_tasks.png)
+
 ### Deleting the replication rule
-Select the replication rule and click `DELETE` to delete it. Only rules which have no pending/running/retrying jobs can be deleted.  
+Select the replication rule and click `DELETE` to delete it. Only rules which have no in progress executions can be deleted.  
 
 ![browse project](img/delete_rule.png)
-
-
-The system administrator can also operate the replication rules defined for the specified project in `Replication` tab under `Projects` view. Project administrator has read-only privilege.
-
-![browse project](img/rule_under_project_view.png)
 
 ## Retag Images
 
@@ -220,10 +258,10 @@ Administrator can add "Administrator" role to one or more ordinary users by chec
 
 ![browse project](img/new_set_admin_remove_user.png)
 
-### Managing endpoint  
-You can list, add, edit and delete endpoints under `Administration->Registries`. Only endpoints which are not referenced by any rules can be deleted.  
+### Managing registry  
+You can list, add, edit and delete registries under `Administration->Registries`. Only registries which are not referenced by any rules can be deleted.  
 
-![browse project](img/manage_endpoint.png)
+![browse project](img/manage_registry.png)
 
 ### Managing replication  
 You can list, add, edit and delete rules under `Administration->Replications`.   
@@ -235,6 +273,21 @@ You can change authentication mode between **Database**(default) and **LDAP** be
 ![browse project](img/new_auth.png)
 When using LDAP mode, user's self-registration is disabled. The parameters of LDAP server must be filled in. For more information, refer to [User account](#user-account).   
 ![browse project](img/ldap_auth.png)
+
+When using OIDC mode, user will login Harbor via OIDC based SSO.  A client has to be registered on the OIDC provider and Harbor's callback URI needs to be associated to that client as a redirectURI.
+![OIDC settings](img/oidc_auth_setting.png)
+
+The settings of this auth mode:
+* OIDC Provider Name: The name of the OIDC Provider.
+* OIDC Provider Endpoint: The URL of the endpoint of the OIDC provider(a.k.a the Authorization Server in OAuth's terminology), 
+which must service the "well-known" URI for its configuration, more details please refer to https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationRequest
+* OIDC Client ID: The ID of client configured on OIDC Provider.
+* OIDC Client Secret: The secret for this client.
+* OIDC Scope: The scope values to be used during the authentication.  It is the comma separated string, which must contain `openid`.  
+Normally it should also contain `profile` and `email`.  For getting the refresh token it should also contain `offline_access`.  Please check with the administrator of the OIDC Provider.
+* Verify Certificate: Whether to check the certificate when accessing the OIDC Provider. if you are running the OIDC Provider with self-signed
+certificate, make sure this value is set to false.
+
 
 ### Managing project creation
 Use the **Project Creation** drop-down menu to set which users can create projects. Select **Everyone** to allow all users to create projects. Select **Admin Only** to allow only users with the Administrator role to create projects.  
@@ -599,6 +652,35 @@ In Harbor portal, enter your project, select the repository, click on the link o
 
 ![build_ history](img/build_history.png)
 
+## Using OIDC CLI secret
+
+Having authenticated via OIDC SSO and onboarded to Harbor, you can use Docker/Helm CLI to access Harbor to read/write the artifacts.
+As the CLI cannot handle redirection for SSO, we introduced `CLI secret`, which is only available when Harbor's authentication mode 
+is configured to OIDC based.  
+After logging into Harbor, click the drop down list to view user's profile:
+![user_profile](img/user_profile.png)
+
+You can copy your CLI secret via the dialog of profile:
+![profile_dlg](img/profile_dlg.png)
+
+After that you can authenticate using your user name in Harbor that you set during onboard process, and CLI secret as the password
+with Docker/Helm CLI, for example:
+```sh
+docker login -u testuser -p xxxxxx jt-test.local.goharbor.io
+
+``` 
+
+When you click the "..." icon in the profile dialog, a button for generating new CLI secret will appear, and you can generate a new 
+CLI secret by clicking this button.  Please be reminded one user can only have one CLI secret, so when a new secret is generated, the
+old one becomes invalid at once.
+
+**NOTE**:
+Under the hood the CLI secret is associated with the ID token, and Harbor will try to refresh the token, so the CLI secret will
+be valid after th ID token expires. However, if the OIDC Provider does not provide refresh token or the refresh fails for some 
+reason, the CLI secret will become invalid.  In that case you can logout and login Harbor via SSO flow again so Harbor can get a 
+new ID token and the CLI secret will work again.
+
+
 ## Robot Account
 Robot Accounts are accounts created by project admins that are intended for automated operations. They have the following limitations:
 
@@ -636,4 +718,16 @@ If you are a project admin, you can disable a Robot Account by clicking "Disable
 ### Delete a robot account
 If you are a project admin, you can delete a Robot Account by clicking "Delete" in the `Robot Accounts` tab of a project.
 ![delete_robot_account](img/robotaccount/disable_delete_robot_account.png)
+
+## API Explorer
+
+Harbor integrated swagger UI from 1.8. That means all apis can be invoked through UI. Normally, user have 2 ways to navigate to API Explorer. 
+
+1. User can login harbor, and click the "API EXPLORER" button.All apis will be invoked with current user authorization.                         
+![navigation bar](img/api_explorer_btn.png)  
+
+
+2. User can navigate to swagger page by ip address by router "devcenter". For example: https://10.192.111.118/devcenter. After go to the page, need to click "authorize" button to give basic authentication to all apis. All apis will be invoked with the authorized user authorization. 
+![authentication](img/authorize.png)
+
 

@@ -14,6 +14,8 @@
 
 package common
 
+type contextKey string
+
 // const variables
 const (
 	DBAuth              = "db_auth"
@@ -80,7 +82,6 @@ const (
 	ProjectCreationRestriction       = "project_creation_restriction"
 	MaxJobWorkers                    = "max_job_workers"
 	TokenExpiration                  = "token_expiration"
-	CfgExpiration                    = "cfg_expiration"
 	AdminInitialPassword             = "admin_initial_password"
 	AdmiralEndpoint                  = "admiral_url"
 	WithNotary                       = "with_notary"
@@ -99,7 +100,7 @@ const (
 	HTTPAuthProxyEndpoint            = "http_authproxy_endpoint"
 	HTTPAuthProxyTokenReviewEndpoint = "http_authproxy_tokenreview_endpoint"
 	HTTPAuthProxyVerifyCert          = "http_authproxy_verify_cert"
-	HTTPAuthProxyAlwaysOnboard       = "http_authproxy_always_onboard"
+	HTTPAuthProxySkipSearch          = "http_authproxy_skip_search"
 	OIDCName                         = "oidc_name"
 	OIDCEndpoint                     = "oidc_endpoint"
 	OIDCCLientID                     = "oidc_client_id"
@@ -111,6 +112,7 @@ const (
 	CfgDriverDB                       = "db"
 	NewHarborAdminName                = "admin@harbor.local"
 	RegistryStorageProviderName       = "registry_storage_provider_name"
+	RegistryControllerURL             = "registry_controller_url"
 	UserMember                        = "u"
 	GroupMember                       = "g"
 	ReadOnly                          = "read_only"
@@ -118,8 +120,9 @@ const (
 	NotaryURL                         = "notary_url"
 	DefaultCoreEndpoint               = "http://core:8080"
 	DefaultNotaryEndpoint             = "http://notary-server:4443"
-	LdapGroupType                     = 1
-	LdapGroupAdminDn                  = "ldap_group_admin_dn"
+	LDAPGroupType                     = 1
+	HTTPGroupType                     = 2
+	LDAPGroupAdminDn                  = "ldap_group_admin_dn"
 	LDAPGroupMembershipAttribute      = "ldap_group_membership_attribute"
 	DefaultRegistryControllerEndpoint = "http://registryctl:8080"
 	WithChartMuseum                   = "with_chartmuseum"
@@ -136,4 +139,7 @@ const (
 	RobotTokenDuration      = "robot_token_duration"
 
 	OIDCCallbackPath = "/c/oidc/callback"
+	OIDCLoginPath    = "/c/oidc/login"
+
+	ChartUploadCtxKey = contextKey("chart_upload_event")
 )

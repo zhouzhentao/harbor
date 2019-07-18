@@ -22,7 +22,8 @@ import { modalEvents } from '../modal-events.const';
 import { SessionService } from '../../shared/session.service';
 import { CookieService, CookieOptions } from 'ngx-cookie';
 
-import { supportedLangs, enLang, languageNames, CommonRoutes } from '../../shared/shared.const';
+import { supportedLangs, enLang, languageNames } from '../../shared/shared.const';
+import { CommonRoutes } from '@harbor/ui';
 import { AppConfigService } from '../../app-config.service';
 import { SearchTriggerService } from '../global-search/search-trigger.service';
 import { MessageHandlerService } from '../../shared/message-handler/message-handler.service';
@@ -113,8 +114,8 @@ export class NavigatorComponent implements OnInit {
         let user = this.session.getCurrentUser();
         let config = this.appConfigService.getConfig();
 
-        return user && ((config && !(config.auth_mode === "ldap_auth" || config.auth_mode === "uaa_auth")) ||
-            (user.user_id === 1 && user.username === "admin"));
+        return user && ((config && !(config.auth_mode === "ldap_auth" || config.auth_mode === "uaa_auth"
+        || config.auth_mode === "oidc_auth")) || (user.user_id === 1 && user.username === "admin"));
     }
 
     matchLang(lang: string): boolean {

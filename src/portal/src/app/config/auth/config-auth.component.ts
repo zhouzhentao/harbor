@@ -11,11 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import { Component, Input, ViewChild, SimpleChanges, OnChanges } from '@angular/core';
+import { Component, Input, ViewChild, SimpleChanges, OnChanges, OnInit, Output, EventEmitter } from '@angular/core';
 import { NgForm } from '@angular/forms';
 import { Subscription } from "rxjs";
 
-import { Configuration, clone, isEmpty, getChanges, StringValueItem, BoolValueItem } from '@harbor/ui';
+import { Configuration, clone, isEmpty, getChanges, StringValueItem, BoolValueItem, SystemInfoService, ErrorHandler } from '@harbor/ui';
 import { MessageHandlerService } from '../../shared/message-handler/message-handler.service';
 import { ConfirmMessageHandler } from '../config.msg.utils';
 import { AppConfigService } from '../../app-config.service';
@@ -28,23 +28,34 @@ const fakePass = 'aWpLOSYkIzJTTU4wMDkx';
     templateUrl: 'config-auth.component.html',
     styleUrls: ['./config-auth.component.scss', '../config.component.scss']
 })
-export class ConfigurationAuthComponent implements OnChanges {
+export class ConfigurationAuthComponent implements OnChanges, OnInit {
     changeSub: Subscription;
     testingLDAPOnGoing = false;
     onGoing = false;
+    redirectUrl: string;
     // tslint:disable-next-line:no-input-rename
     @Input('allConfig') currentConfig: Configuration = new Configuration();
     private originalConfig: Configuration;
     @ViewChild('authConfigFrom') authForm: NgForm;
+    @Output() refreshAllconfig = new EventEmitter<any>();
 
     constructor(
         private msgHandler: MessageHandlerService,
         private configService: ConfigurationService,
         private appConfigService: AppConfigService,
-        private confirmMessageHandler: ConfirmMessageHandler
+        private confirmMessageHandler: ConfirmMessageHandler,
+        private systemInfo: SystemInfoService,
+        private errorHandler: ErrorHandler,
     ) {
     }
-
+    ngOnInit() {
+        this.getSystemInfo();
+    }
+    getSystemInfo(): void {
+        this.systemInfo.getSystemInfo()
+            .subscribe(systemInfo => (this.redirectUrl = systemInfo.external_url)
+                , error => this.errorHandler.error(error));
+    }
     get checkable() {
         return this.currentConfig &&
             this.currentConfig.self_registration &&
@@ -124,7 +135,7 @@ export class ConfigurationAuthComponent implements OnChanges {
                 this.msgHandler.showSuccess('CONFIG.TEST_LDAP_SUCCESS');
             }, error => {
                 this.testingLDAPOnGoing = false;
-                let err = error._body;
+                let err = error.error;
                 if (!err || !err.trim()) {
                     err = 'UNKNOWN';
                 }
@@ -192,7 +203,7 @@ export class ConfigurationAuthComponent implements OnChanges {
             this.configService.saveConfiguration(changes)
                 .subscribe(response => {
                     this.onGoing = false;
-                    this.retrieveConfig();
+                    this.refreshAllconfig.emit();
                     // Reload bootstrap option
                     this.appConfigService.load().subscribe(() => { }
                         , error => console.error('Failed to reload bootstrap option with error: ', error));
@@ -205,25 +216,6 @@ export class ConfigurationAuthComponent implements OnChanges {
             // Inprop situation, should not come here
             console.error('Save abort because nothing changed');
         }
-    }
-
-    retrieveConfig(): void {
-        this.onGoing = true;
-        this.configService.getConfiguration()
-            .subscribe((configurations: Configuration) => {
-                this.onGoing = false;
-
-                // Add two password fields
-                configurations.ldap_search_password = new StringValueItem(fakePass, true);
-                configurations.uaa_client_secret = new StringValueItem(fakePass, true);
-                configurations.oidc_client_secret = new StringValueItem(fakePass, true);
-                this.currentConfig = configurations;
-                // Keep the original copy of the data
-                this.originalConfig = clone(configurations);
-            }, error => {
-                this.onGoing = false;
-                this.msgHandler.handleError(error);
-            });
     }
 
     /**

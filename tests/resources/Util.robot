@@ -1,4 +1,4 @@
-# Copyright Project Harbor Authors
+f# Copyright Project Harbor Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ Resource  Harbor-Pages/Project-Retag_Elements.robot
 Resource  Harbor-Pages/Replication.robot
 Resource  Harbor-Pages/Replication_Elements.robot
 Resource  Harbor-Pages/UserProfile.robot
+Resource  Harbor-Pages/UserProfile_Elements.robot
 Resource  Harbor-Pages/Administration-Users.robot
 Resource  Harbor-Pages/Administration-Users_Elements.robot
 Resource  Harbor-Pages/Configuration.robot
@@ -52,9 +53,13 @@ Resource  Harbor-Pages/Configuration_Elements.robot
 Resource  Harbor-Pages/ToolKit.robot
 Resource  Harbor-Pages/ToolKit_Elements.robot
 Resource  Harbor-Pages/Vulnerability.robot
+Resource  Harbor-Pages/Vulnerability_Elements.robot
 Resource  Harbor-Pages/LDAP-Mode.robot
+Resource  Harbor-Pages/OIDC_Auth.robot
+Resource  Harbor-Pages/OIDC_Auth_Elements.robot
 Resource  Harbor-Pages/Verify.robot
 Resource  Docker-Util.robot
+Resource  Helm-Util.robot
 Resource  Admiral-Util.robot
 Resource  OVA-Util.robot
 Resource  Cert-Util.robot
@@ -98,6 +103,11 @@ Retry Text Input
     @{param}  Create List  ${element_xpath}  ${text}
     Retry Action Keyword  Text Input  @{param}
 
+Retry Link Click
+    [Arguments]  ${element_xpath}
+    @{param}  Create List  ${element_xpath}
+    Retry Action Keyword  Link Click  @{param}
+
 Retry Checkbox Should Be Selected
     [Arguments]  ${element_xpath}
     @{param}  Create List  ${element_xpath}
@@ -123,6 +133,33 @@ Retry Wait Until Page Not Contains Element
     @{param}  Create List  ${element_xpath}
     Retry Action Keyword  Wait Until Page Does Not Contain Element  @{param}
 
+Retry Select Object
+    [Arguments]    ${obj_name}
+    @{param}    Create List    ${obj_name}
+    Retry Action Keyword    Select Object    @{param}
+
+Retry Textfield Value Should Be
+    [Arguments]    ${element}    ${text}
+    @{param}    Create List    ${element}    ${text}
+    Retry Action Keyword    Wait And Textfield Value Should Be    @{param}
+
+Retry List Selection Should Be
+    [Arguments]    ${element}    ${text}
+    @{param}    Create List    ${element}    ${text}
+    Retry Action Keyword    Wait And List Selection Should Be    @{param}
+Link Click
+    [Arguments]  ${element_xpath}
+    Click Link  ${element_xpath}
+Wait And List Selection Should Be
+    [Arguments]    ${element}    ${text}
+    Wait Until Element Is Visible And Enabled    ${element}
+    List Selection Should Be    ${element}    ${text}
+
+Wait And Textfield Value Should Be
+    [Arguments]    ${element}    ${text}
+    Wait Until Element Is Visible And Enabled    ${element}
+    Textfield Value Should Be    ${element}    ${text}
+
 Element Click
     [Arguments]  ${element_xpath}
     Wait Until Element Is Visible And Enabled  ${element_xpath}
@@ -138,6 +175,12 @@ Text Input
     Wait Until Element Is Visible And Enabled  ${element_xpath}
     Input Text  ${element_xpath}  ${text}
 
+Clear Field Of Characters
+    [Arguments]    ${field}    ${character count}
+    [Documentation]    This keyword pushes the delete key (ascii: \8) a specified number of times in a specified field.
+    : FOR    ${index}    IN RANGE    ${character count}
+    \    Press Key    ${field}    \\8
+
 Wait Unitl Vul Data Ready
     [Arguments]  ${url}  ${timeout}  ${interval}
     ${n}=  Evaluate  ${timeout}/${interval}
@@ -151,16 +194,20 @@ Wait Unitl Vul Data Ready
     Run Keyword If  ${i+1}==${n}  Fail  The vul data is not ready
 
 Wait Unitl Command Success
-    [Arguments]  ${cmd}  ${times}=8  ${positive}=${true}
+    [Arguments]  ${cmd}  ${times}=8
     :FOR  ${n}  IN RANGE  1  ${times}
     \    Log  Trying ${cmd}: ${n} ...  console=True
     \    ${rc}  ${output}=  Run And Return Rc And Output  ${cmd}
-    \    Run Keyword If  ${positive} == ${true}  Exit For Loop If  '${rc}'=='0'
-    \    ...  ELSE  Exit For Loop If  '${rc}'!='0'
+    \    Exit For Loop If  '${rc}'=='0'
     \    Sleep  2
     Log  Command Result is ${output}
-    Run Keyword If  ${positive} == ${true}  Should Be Equal As Strings  '${rc}'  '0'
-    ...  ELSE  Should Not Be Equal As Strings  '${rc}'  '0'
+    Should Be Equal As Strings  '${rc}'  '0'
+    [Return]  ${output}
+
+Command Should be Failed
+    [Arguments]  ${cmd}
+    ${rc}  ${output}=  Run And Return Rc And Output  ${cmd}
+    Should Not Be Equal As Strings  '${rc}'  '0'
     [Return]  ${output}
 
 Retry Keyword When Error
@@ -176,14 +223,24 @@ Retry Keyword When Error
 
 Retry Double Keywords When Error
     [Arguments]  ${keyword1}  ${element1}  ${keyword2}  ${element2}
+    Retry Wait Element  ${element1}
     :For  ${n}  IN RANGE  1  6
     \    Log To Console  Trying ${keyword1} and ${keyword2} ${n} times ...
     \    ${out1}  Run Keyword And Ignore Error  ${keyword1}  ${element1}
     \    Capture Page Screenshot
+    \    Sleep  2
     \    ${out2}  Run Keyword And Ignore Error  ${keyword2}  ${element2}
     \    Capture Page Screenshot
     \    Log To Console  Return value is ${out1[0]} ${out2[0]}
-    \    Exit For Loop If  '${out1[0]}'=='PASS' and '${out2[0]}'=='PASS'
-    \    Sleep  2
-    Should Be Equal As Strings  '${out1[0]}'  'PASS'
+    \    Exit For Loop If  '${out2[0]}'=='PASS'
+    \    Sleep  1
     Should Be Equal As Strings  '${out2[0]}'  'PASS'
+
+Run Curl And Return Json
+    [Arguments]  ${curl_cmd}
+    ${json_data_file}=  Set Variable  ${CURDIR}${/}cur_user_info.json
+    ${rc}  ${output}=  Run And Return Rc And Output  ${curl_cmd}
+    Should Be Equal As Integers  0  ${rc}
+    Create File  ${json_data_file}  ${output}
+    ${json}=    Load Json From File    ${json_data_file}
+    [Return]  ${json}

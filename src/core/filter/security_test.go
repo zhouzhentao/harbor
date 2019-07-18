@@ -16,8 +16,6 @@ package filter
 
 import (
 	"context"
-	"github.com/goharbor/harbor/src/common/utils/oidc"
-	"github.com/stretchr/testify/require"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +24,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/goharbor/harbor/src/common/utils/oidc"
+	"github.com/stretchr/testify/require"
 
 	"github.com/astaxie/beego"
 	beegoctx "github.com/astaxie/beego/context"
@@ -101,6 +102,28 @@ func TestSecurityFilter(t *testing.T) {
 	assert.NotNil(t, projectManager(ctx))
 }
 
+func TestConfigCtxModifier(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet,
+		"http://127.0.0.1/api/projects/", nil)
+	require.Nil(t, err)
+	conf := map[string]interface{}{
+		common.AUTHMode:         common.OIDCAuth,
+		common.OIDCName:         "test",
+		common.OIDCEndpoint:     "https://accounts.google.com",
+		common.OIDCVerifyCert:   "true",
+		common.OIDCScope:        "openid, profile, offline_access",
+		common.OIDCCLientID:     "client",
+		common.OIDCClientSecret: "secret",
+		common.ExtEndpoint:      "https://harbor.test",
+	}
+	config.InitWithSettings(conf)
+	ctx, err := newContext(req)
+	m := &configCtxModifier{}
+	f := m.Modify(ctx)
+	assert.False(t, f)
+	assert.Equal(t, common.OIDCAuth, req.Context().Value(AuthModeKey).(string))
+}
+
 func TestSecretReqCtxModifier(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet,
 		"http://127.0.0.1/api/projects/", nil)
@@ -145,6 +168,7 @@ func TestOIDCCliReqCtxModifier(t *testing.T) {
 	assert.False(t, modifier.Modify(ctx1))
 	req2, err := http.NewRequest(http.MethodGet, "http://127.0.0.1/service/token", nil)
 	require.Nil(t, err)
+	addToReqContext(req2, AuthModeKey, common.OIDCAuth)
 	ctx2, err := newContext(req2)
 	require.Nil(t, err)
 	assert.False(t, modifier.Modify(ctx2))
@@ -161,11 +185,37 @@ func TestOIDCCliReqCtxModifier(t *testing.T) {
 	req3, err := http.NewRequest(http.MethodGet, "http://127.0.0.1/service/token", nil)
 	require.Nil(t, err)
 	req3.SetBasicAuth(username, password)
+	addToReqContext(req3, AuthModeKey, common.OIDCAuth)
 	ctx3, err := newContext(req3)
 	assert.True(t, modifier.Modify(ctx3))
 	o := dao.GetOrmer()
 	_, err = o.Delete(&models.User{UserID: int(id)})
 	assert.Nil(t, err)
+}
+
+func TestIdTokenReqCtxModifier(t *testing.T) {
+	bc := context.Background()
+	it := &idTokenReqCtxModifier{}
+	r1, err := http.NewRequest(http.MethodGet,
+		"http://127.0.0.1/chartrepo/", nil)
+	require.Nil(t, err)
+	req1 := r1.WithContext(context.WithValue(bc, AuthModeKey, common.DBAuth))
+	ctx1, err := newContext(req1)
+	require.Nil(t, err)
+	assert.False(t, it.Modify(ctx1))
+
+	req2 := r1.WithContext(context.WithValue(bc, AuthModeKey, common.OIDCAuth))
+	ctx2, err := newContext(req2)
+	require.Nil(t, err)
+	assert.False(t, it.Modify(ctx2))
+
+	r2, err := http.NewRequest(http.MethodGet,
+		"http://127.0.0.1/api/projects/", nil)
+	require.Nil(t, err)
+	req3 := r2.WithContext(context.WithValue(bc, AuthModeKey, common.OIDCAuth))
+	ctx3, err := newContext(req3)
+	require.Nil(t, err)
+	assert.False(t, it.Modify(ctx3))
 }
 
 func TestRobotReqCtxModifier(t *testing.T) {
@@ -192,7 +242,7 @@ func TestAuthProxyReqCtxModifier(t *testing.T) {
 	defer server.Close()
 
 	c := map[string]interface{}{
-		common.HTTPAuthProxyAlwaysOnboard:       "true",
+		common.HTTPAuthProxySkipSearch:          "true",
 		common.HTTPAuthProxyVerifyCert:          "false",
 		common.HTTPAuthProxyEndpoint:            "https://auth.proxy/suffix",
 		common.HTTPAuthProxyTokenReviewEndpoint: server.URL,
@@ -204,7 +254,7 @@ func TestAuthProxyReqCtxModifier(t *testing.T) {
 	assert.Nil(t, e)
 	assert.Equal(t, *v, models.HTTPAuthProxy{
 		Endpoint:            "https://auth.proxy/suffix",
-		AlwaysOnBoard:       true,
+		SkipSearch:          true,
 		VerifyCert:          false,
 		TokenReviewEndpoint: server.URL,
 	})
@@ -216,6 +266,7 @@ func TestAuthProxyReqCtxModifier(t *testing.T) {
 		t.Fatalf("failed to create request: %v", req)
 	}
 	req.SetBasicAuth("tokenreview$administrator@vsphere.local", "reviEwt0k3n")
+	addToReqContext(req, AuthModeKey, common.HTTPAuth)
 	ctx, err := newContext(req)
 	if err != nil {
 		t.Fatalf("failed to crate context: %v", err)
@@ -236,6 +287,7 @@ func TestAuthProxyReqCtxModifier(t *testing.T) {
 		t.Fatalf("failed to create request: %v", req)
 	}
 	req.SetBasicAuth("tokenreview$administrator@vsphere.local", "reviEwt0k3n")
+	addToReqContext(req, AuthModeKey, common.HTTPAuth)
 	ctx, err = newContext(req)
 	if err != nil {
 		t.Fatalf("failed to crate context: %v", err)
@@ -290,13 +342,8 @@ func TestSessionReqCtxModifier(t *testing.T) {
 		t.Fatalf("failed to set session: %v", err)
 	}
 
-	req, err = http.NewRequest(http.MethodGet,
-		"http://127.0.0.1/api/projects/", nil)
-	if err != nil {
-		t.Fatalf("failed to create request: %v", req)
-	}
 	addSessionIDToCookie(req, store.SessionID())
-
+	addToReqContext(req, AuthModeKey, common.DBAuth)
 	ctx, err := newContext(req)
 	if err != nil {
 		t.Fatalf("failed to crate context: %v", err)
@@ -336,12 +383,11 @@ func TestSessionReqCtxModifierFailed(t *testing.T) {
 		t.Fatalf("failed to create request: %v", req)
 	}
 	addSessionIDToCookie(req, store.SessionID())
-
+	addToReqContext(req, AuthModeKey, common.DBAuth)
 	ctx, err := newContext(req)
 	if err != nil {
 		t.Fatalf("failed to crate context: %v", err)
 	}
-
 	modifier := &sessionReqCtxModifier{}
 	modified := modifier.Modify(ctx)
 
